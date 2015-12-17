@@ -39,6 +39,7 @@
 #define LIGHT_UP_LASERPOINTER 5
 #define LIGHT_UP_LED 1
 #define LIGHT_UP_LED_HIT 3000
+#define WS2801_STRIP_COUNT 5
 
 #define MAX_ENERGY   120
 
@@ -54,11 +55,11 @@
 #define KEY_PRESSED LOW
 #define KEY_RELEASED HIGH
 
-IRrecv receiver(2);
+IRrecv receiver(PIN_IR_RECEIVER);
 IRsend transmitter;
 IRdecodeBase decoder;
 U8GLIB_SH1106_128X64 u8g(U8G_I2C_OPT_NONE);  
-Adafruit_WS2801 strip = Adafruit_WS2801(5, PIN_WS2801_DATA, PIN_WS2801_CLOCK);
+Adafruit_WS2801 strip = Adafruit_WS2801(WS2801_STRIP_COUNT, PIN_WS2801_DATA, PIN_WS2801_CLOCK);
 
 struct Teams {
   unsigned int code;
@@ -67,6 +68,7 @@ struct Teams {
 };
 
 const Teams teams[] = {
+  //HEXCode, DisplayName, Color
   { 0x0700, "Blue", BLUE },
   { 0x0400, "Red", RED },
   { 0x0500, "Yellow", YELLOW },
@@ -85,6 +87,7 @@ struct Markers {
 };
 
 const Markers markers[] = {
+  //HexCode, Pistol/Rifle, Enabled Flag, DisplayName, -Damage/+Heal, Ammo, Button Debouce (ms), Reload Time (ms)
   { 0x0102, 'P', true,  "Laserstrike",    -10, 12, 1000, 1000 },
   { 0x0202, 'P', true,  "Stealthstrike",  -10, 12, 100, 1000 },
   { 0x0303, 'P', true,  "Pulsestrike",    -15, 10, 100, 50 },
@@ -182,7 +185,7 @@ void refreshDisplayValues() {
       u8g.setPrintPos(60, 38);
       u8g.print(currentEnergy);
       u8g.setPrintPos(87, 38);
-      u8g.print("/120");
+      u8g.print("/120"); //MAX_ENERGY
     } while (u8g.nextPage());
   }
 }
@@ -194,7 +197,13 @@ void loop() {
  
   if (currentEnergy > 0) {
     if (receiver.GetResults(&decoder)) {
-      decoder.decodeGeneric(LIGHT_STRIKE_RAW_LENGTH, LIGHT_STRIKE_HEADER_MARK, LIGHT_STRIKE_HEADER_SPACE, LIGHT_STRIKE_MARK_ONE, LIGHT_STRIKE_MARK_ZERO, LIGHT_STRIKE_SPACE_ONE, LIGHT_STRIKE_SPACE_ZERO);
+      decoder.decodeGeneric(LIGHT_STRIKE_RAW_LENGTH, 
+                            LIGHT_STRIKE_HEADER_MARK, 
+                            LIGHT_STRIKE_HEADER_SPACE, 
+                            LIGHT_STRIKE_MARK_ONE, 
+                            LIGHT_STRIKE_MARK_ZERO, 
+                            LIGHT_STRIKE_SPACE_ONE, 
+                            LIGHT_STRIKE_SPACE_ZERO);
       lastHit = decoder.value;
       receiver.resume();
     }
