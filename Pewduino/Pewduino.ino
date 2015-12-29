@@ -1,7 +1,6 @@
 #include <SPI.h>
 #include <Adafruit_WS2801.h>
 #include <IRLib.h>
-#include <VirtualWire.h>
 #include <U8glib.h>
 
 #define PIN_IR_RECEIVER     2
@@ -17,8 +16,8 @@
 #define PIN_RELOAD         A1
 #define PIN_MARKER_CHANGE  A2
 #define PIN_TEAM_CHANGE    A3
-#define PIN_START          A6
-#define PIN_SHIELD         A7
+#define PIN_START          A5
+#define PIN_SHIELD         A6
 
 #define LIGHT_STRIKE_DATA_LENGTH    32
 #define LIGHT_STRIKE_RAW_LENGTH     66
@@ -36,25 +35,28 @@
 #define START_MARKER   0
 #define TEAM_COUNT     4
 #define START_TEAM     1
-#define LIGHT_UP_LASERPOINTER 5
+#define LIGHT_UP_LASERPOINTER 1
 #define LIGHT_UP_LED 1
-#define LIGHT_UP_LED_HIT 3000
+#define LIGHT_UP_LED_HIT 500
+
+#define ACTION_MARKER_CHANGE_WAIT_TIME 3000
+#define ACTION_TEAM_CHANGE_WAIT_TIME 3000
 
 #define MAX_ENERGY   120
 
 #define WHITE  0xFFFFFF
 #define BLACK  0x000000
 
-#define BLUE   0x0000FF
-#define RED    0xFF0000
-#define YELLOW 0xFFFF00
-#define GREEN  0x00FF00
+#define BLUE   0x000077
+#define RED    0x770000
+#define YELLOW 0x777700
+#define GREEN  0x007700
 
 //as we are using the internal pull up resistors, a key press is a low signal and a release key is a high signal, i will define these compiler variables to make the code easier to read
 #define KEY_PRESSED LOW
 #define KEY_RELEASED HIGH
 
-IRrecv receiver(2);
+IRrecv receiver(PIN_IR_RECEIVER);
 IRsend transmitter;
 IRdecodeBase decoder;
 U8GLIB_SH1106_128X64 u8g(U8G_I2C_OPT_NONE);  
@@ -81,26 +83,29 @@ struct Markers {
   int damage;
   int charges;
   int bounceDelay;
+  int continuesDelay;
   int reloadTime;
 };
 
 const Markers markers[] = {
-  { 0x0102, 'P', true,  "Laserstrike",    -10, 12, 1000, 1000 },
-  { 0x0202, 'P', true,  "Stealthstrike",  -10, 12, 100, 1000 },
-  { 0x0303, 'P', true,  "Pulsestrike",    -15, 10, 100, 50 },
-  { 0x0406, 'P', true,  "Sonicstrike",    -40, 4, 100, 1000 },
-  { 0x0502, 'R', true,  "Laserstrike",    -10, 12, 100, 1000 },
-  { 0x0602, 'R', true,  "Stealthstrike",  -10, 12, 100, 1000 },
-  { 0x0703, 'R', true,  "Pulsestrike",    -15, 10, 100, 1000 },
-  { 0x0806, 'R', true,  "Railstrike",     -30, 6, 100, 1000 },
-  { 0x0908, 'R', true,  "Sonicstrike",    -40, 4, 100, 1000 },
-  { 0x0E18, 'S', false, "Bomb",          -120, 1, 100, 1000 },
-  { 0x0A0C, 'S', false, "Optic",          -60, 2, 100, 1000 },
-  { 0x0F08, 'S', false, "Sentry",         -40, 3, 100, 1000 },
-  { 0x0B12, 'S', false, "Refractor",      -60, 2, 100, 1000 },
-  { 0x0C03, 'S', false, "Auto Strike",    -15, 8, 100, 1000 },
-  { 0x0D06, 'S', false, "Launcher",       -30, 4, 100, 1000 },
-  { 0x0800, 'S', false, "Medic",          +40, 3, 100, 1000 },
+  { 0x0102, 'P', true,  "Laserstrike",    -10, 12,  175,  250, 1750 }, 
+  { 0x0202, 'P', true,  "Stealthstrike",  -10, 12,  250,  250, 1750 }, 
+  { 0x0303, 'P', true,  "Pulsestrike",    -15, 10,  500,  500, 2000 },
+  { 0x0406, 'P', true,  "Sonicstrike",    -40,  8, 1000, 1000, 2500 },
+  
+  { 0x0502, 'R', true,  "Laserstrike",    -10, 24,  200,  250, 1750 },
+  { 0x0602, 'R', true,  "Stealthstrike",  -10, 24,  200,  250, 1750 },
+  { 0x0703, 'R', true,  "Pulsestrike",    -15, 16,  200,  500, 2500 },
+  { 0x0806, 'R', true,  "Railstrike",     -30,  8, 1000, 1000, 4000 },
+  { 0x0908, 'R', true,  "Sonicstrike",    -40,  6, 1250, 1250, 5500 },
+  
+  { 0x0E18, 'S', false, "Bomb",          -120,  1, 5000, 5000, 30000 },
+  { 0x0A0C, 'S', false, "Optic",          -60,  2, 5000, 5000, 30000 },
+  { 0x0F08, 'S', false, "Sentry",         -40,  3, 5000, 5000, 30000 },
+  { 0x0B12, 'S', false, "Refractor",      -60,  2, 5000, 5000, 30000 },
+  { 0x0C03, 'S', false, "Auto Strike",    -15,  8, 5000, 5000, 30000 },
+  { 0x0D06, 'S', false, "Launcher",       -30,  4, 5000, 5000, 30000 },
+  { 0x0800, 'S', false, "Medic",          +40,  3, 5000, 5000, 30000 }
 };
 
 unsigned int currentTeam = START_TEAM;
@@ -114,6 +119,13 @@ unsigned long lastHit = 0;
 unsigned long msSinceLastHit = 0;
 unsigned long msSinceLastShot = 0;
 unsigned long msSinceLastTick = 0;
+unsigned long msSinceLastAction = 0;
+
+int waitTime = 0;
+
+unsigned int hitByCode = 0x0;
+String hitByName = "";
+uint32_t hitByColor = 0xFFFFFF;
 
 byte reloadState = KEY_RELEASED;
 byte triggerState = KEY_RELEASED;
@@ -171,13 +183,23 @@ void refreshDisplayValues() {
       u8g.setPrintPos((128 - ((temp.length() * 6) + 1)), 10);
       u8g.print(temp);
       u8g.drawStr(34, 62, F("Hit by "));
+      u8g.setPrintPos(69, 62);
+      u8g.print(hitByName);
       u8g.setFont(u8g_font_9x15);
-      u8g.drawStr(18, 38, "/");
-      u8g.setPrintPos(0, 38);
-      u8g.print(currentCharge);
-      u8g.setPrintPos(27, 38);
-      u8g.print(markers[currentMarker].charges);
-
+       
+      if (markers[currentMarker].type == 'P') {
+        u8g.setPrintPos(14, 38);
+        u8g.print("o");
+        u8g.setPrintPos(21, 38);
+        u8g.print("o");
+      } else {
+        u8g.setPrintPos(0, 38);
+        u8g.print(currentCharge);
+        u8g.drawStr(18, 38, "/");
+        u8g.setPrintPos(27, 38);
+        u8g.print(markers[currentMarker].charges);  
+      }
+      
 
       u8g.setPrintPos(60, 38);
       u8g.print(currentEnergy);
@@ -191,49 +213,62 @@ void refreshDisplayValues() {
 void loop() {
   //Serial.println(millis()-msSinceLastTick);
   msSinceLastTick = millis();
- 
   if (currentEnergy > 0) {
     if (receiver.GetResults(&decoder)) {
-      decoder.decodeGeneric(LIGHT_STRIKE_RAW_LENGTH, LIGHT_STRIKE_HEADER_MARK, LIGHT_STRIKE_HEADER_SPACE, LIGHT_STRIKE_MARK_ONE, LIGHT_STRIKE_MARK_ZERO, LIGHT_STRIKE_SPACE_ONE, LIGHT_STRIKE_SPACE_ZERO);
+      decoder.decodeGeneric(LIGHT_STRIKE_RAW_LENGTH, 
+                            LIGHT_STRIKE_HEADER_MARK, 
+                            LIGHT_STRIKE_HEADER_SPACE,
+                            //For use with IRLib-Light 
+                            //LIGHT_STRIKE_MARK_ZERO, 
+                            //For use with Standard IRLib
+                            0, 
+                            LIGHT_STRIKE_MARK_ZERO, 
+                            LIGHT_STRIKE_SPACE_ONE, 
+                            LIGHT_STRIKE_SPACE_ZERO);
       lastHit = decoder.value;
+      hitByCode = getTeamCodeFromHit(lastHit);
+      hitByColor = getTeamColorByCode(hitByCode);
+      hitByName = getTeamNameByCode(hitByCode);
       receiver.resume();
     }
-
-    triggerState = digitalRead(PIN_TRIGGER);
-    reloadState = digitalRead(PIN_RELOAD);
-    markerChangeState = digitalRead(PIN_MARKER_CHANGE);
-    teamChangeState = digitalRead(PIN_TEAM_CHANGE);
-
-    if (lastHit != 0) {
-      if (getTeamCodeFromHit(lastHit) != teams[currentTeam].code) {
-        setLEDColor(getTeamColorByCode(getTeamCodeFromHit(lastHit)));
-        currentEnergy = currentEnergy + getMarkerDamageByCode(getMarkerCodeFromHit(lastHit));
-        lastHit = 0;
-        msSinceLastHit = millis();
-        
-        updateDisplay = true;
-      }
-    }
-    if (triggerState == KEY_PRESSED) {
-      if (lastTriggerState == KEY_RELEASED) {
-        shot(teams[currentTeam].code, markers[currentMarker].code);
-      } else {
-        if (millis() > (msSinceLastShot + markers[currentMarker].bounceDelay)) {
-          shot(teams[currentTeam].code, markers[currentMarker].code);
+    if (millis() > (msSinceLastAction + waitTime)) {
+      triggerState = digitalRead(PIN_TRIGGER);
+      reloadState = digitalRead(PIN_RELOAD);
+      markerChangeState = digitalRead(PIN_MARKER_CHANGE);
+      teamChangeState = digitalRead(PIN_TEAM_CHANGE);
+      
+      if (lastHit != 0) {
+        if (hitByCode != teams[currentTeam].code) {
+          setLEDColor(hitByColor);
+          currentEnergy = currentEnergy + getMarkerDamageByCode(getMarkerCodeFromHit(lastHit));
+          lastHit = 0;
+          msSinceLastHit = millis();
+          updateDisplay = true;
         }
       }
+      if (triggerState == KEY_PRESSED) {
+        if (lastTriggerState == KEY_PRESSED) {
+          if (millis() > (msSinceLastShot + markers[currentMarker].continuesDelay)) {
+            shot(teams[currentTeam].code, markers[currentMarker].code);
+          }
+        } else {
+          if (millis() > (msSinceLastShot + markers[currentMarker].bounceDelay)) {
+            shot(teams[currentTeam].code, markers[currentMarker].code);
+          }
+        }
+      }
+      if (reloadState == KEY_PRESSED) {
+        reload();
+      }
+      if (markerChangeState == KEY_PRESSED) {
+        changeMarker();
+      }
+      if (teamChangeState == KEY_PRESSED) {
+        changeTeam();
+      }
     }
-    if (reloadState == KEY_PRESSED) {
-      reload();
-    }
-    if (markerChangeState == KEY_PRESSED) {
-      changeMarker();
-    }
-    if (teamChangeState == KEY_PRESSED) {
-      changeTeam();
-    }
+    lastTriggerState = triggerState;
   }
-  lastTriggerState = triggerState;
   refreshDisplayValues();
   refreshLights();
 }
@@ -263,7 +298,7 @@ void shot(long teamCode, int markerCode) {
                             LIGHT_STRIKE_KHZ,
                             LIGHT_STRIKE_USE_STOP,
                             LIGHT_STRIKE_MAX_EXTENT);
-    receiver.resume();
+    receiver.enableIRIn();
     currentCharge--;
     updateDisplay = true;
     digitalWrite(PIN_LASER_POINTER, HIGH);
@@ -275,6 +310,8 @@ void shot(long teamCode, int markerCode) {
 
 void reload() {
   currentCharge = markers[currentMarker].charges;
+  waitTime = markers[currentMarker].reloadTime;
+  msSinceLastAction = millis();
   updateDisplay = true;
 }
 
@@ -295,6 +332,9 @@ void changeTeam() {
   } else {
     setTeam(currentTeam + 1);
   }
+  
+  waitTime = ACTION_TEAM_CHANGE_WAIT_TIME;
+  msSinceLastAction = millis();
 }
 
 void setMarker(int marker) {
@@ -309,15 +349,20 @@ void changeMarker() {
   } else {
     setMarker(currentMarker + 1);
   }
+  waitTime = ACTION_MARKER_CHANGE_WAIT_TIME;
+  msSinceLastAction = millis();
 }
 
 String getTeamNameByCode(long code) {
   for (byte i = 0; i < TEAM_COUNT; i++) {
+    Serial.print(code);
+    Serial.print(" : ");
+    Serial.println(teams[i].code);
     if (code == teams[i].code) {
       return teams[i].name;
     }
   }
-  return "";
+  return "Unbekannt";
 }
 
 uint32_t getTeamColorByCode(long code) {
