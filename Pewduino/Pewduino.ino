@@ -17,6 +17,7 @@
 #define PIN_MARKER_CHANGE   A2
 #define PIN_TEAM_CHANGE     A3
 #define PIN_SHIELD          A6
+#define PIN_RESPAWN         A7
 
 #define LIGHT_STRIKE_DATA_LENGTH    32
 #define LIGHT_STRIKE_RAW_LENGTH     66

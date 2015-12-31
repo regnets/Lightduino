@@ -1,0 +1,12 @@
+Spannungsregler L7805 12V -> 5V 	  0,26 € 		http://www.ebay.de/itm/201493476038
+Vishay IR-LED 5mm 940nm TSAL6100 	  0,85 €		http://www.ebay.de/itm/231784940774
+Arduino Nano 				  2,70 €		http://www.ebay.de/itm/371179047627
+Laser Diode 650nm 5mW			  0,25 €		http://www.ebay.de/itm/271943216689
+Vishay IR-Empfänger TSOP31238		  1,25 €		http://www.ebay.de/itm/231790798021
+Batteriehalter				  1,29 €		http://www.ebay.de/itm/390212707436
+Linse					 10,40 €		http://www.lupenshop.de/content/lupenshop.storefront/56852d671136b52a2740d43f47070646/Product/View/1829
+Buttons	(5)				~ 8,00 €		http://www.ebay.de/itm/141303509618
+Oled Display				  7,00 €		http://www.ebay.de/itm/131638512530
+WS2801 Leds (3)				  1,50 €		http://www.ebay.de/itm/311497483556
+
+Gesamt					 35,75 €
