@@ -3,21 +3,26 @@
 #include <IRLib.h>
 #include <U8glib.h>
 
-#define PIN_IR_RECEIVER     D2
-#define PIN_IR_TRANSMITTER  D3 //actually you can't set this pin, it is per default pin three
-#define PIN_RF_RECEIVER     D4
-#define PIN_RF_TRANSMITTER  D5
-#define PIN_WS2801_DATA     D6
-#define PIN_WS2801_CLOCK    D7
-#define PIN_LASER_POINTER   D8
-#define PIN_SPEAKER         D9
+#define PIN_IR_RECEIVER      2
+#define PIN_IR_TRANSMITTER   3 //actually you can't set this pin, it is per default pin three
+#define PIN_RF_RECEIVER      4
+#define PIN_RF_TRANSMITTER   5
+#define PIN_WS2801_DATA      6
+#define PIN_WS2801_CLOCK     7
+#define PIN_LASER_POINTER    8
 
-#define PIN_TRIGGER         A0
-#define PIN_RELOAD          A1
-#define PIN_MARKER_CHANGE   A2
-#define PIN_TEAM_CHANGE     A3
-#define PIN_SHIELD          A6
-#define PIN_RESPAWN         A7
+#define BUTTON_COUNT         4
+#define BUTTON_DELAY        50
+
+#define PIN_TRIGGER                    A0
+#define PIN_RELOAD                     A1
+#define PIN_CHANGE_MARKER_OR_TEAM      A2
+#define PIN_ACTIVATE_SHIELD_OR_RESPAWN A3
+
+#define TRIGGER              0
+#define RELOAD               1
+#define MARKER_OR_TEAM       2 //while Button Trigger is pressed also change team
+#define SHIELD_OR_RESPAWN    3 //while Button Trigger is pressed also respawn
 
 #define LIGHT_STRIKE_DATA_LENGTH    32
 #define LIGHT_STRIKE_RAW_LENGTH     66
@@ -61,6 +66,26 @@ IRsend transmitter;
 IRdecodeBase decoder;
 U8GLIB_SH1106_128X64 u8g(U8G_I2C_OPT_NONE);  
 Adafruit_WS2801 strip = Adafruit_WS2801(5, PIN_WS2801_DATA, PIN_WS2801_CLOCK);
+
+
+struct Buttons {
+	boolean currentReading;
+	boolean lastReading;
+	unsigned long timeLastReadingChanged;
+	
+	unsigned int delayButtonDown;
+	unsigned int delayButtonPressed;
+
+	boolean buttonDown;
+	boolean buttonPressed;
+};
+
+Buttons buttons[] = {
+	{ KEY_RELEASED, KEY_RELEASED, 0, 0, 0, false, false}, //Trigger 
+	{ KEY_RELEASED, KEY_RELEASED, 0, 0, 0, false, false}, //Reload
+	{ KEY_RELEASED, KEY_RELEASED, 0, 0, 0, false, false}, //Marker
+	{ KEY_RELEASED, KEY_RELEASED, 0, 0, 0, false, false}  //Shield
+};
 
 struct Teams {
 	unsigned int code;
@@ -129,28 +154,58 @@ unsigned int hitByCode = 0x0000;
 String hitByName = "";
 uint32_t hitByColor = 0xFFFFFF;
 
-byte reloadState = KEY_RELEASED;
-byte triggerState = KEY_RELEASED;
-byte markerChangeState = KEY_RELEASED;
-byte teamChangeState = KEY_RELEASED;
-
-byte lastTriggerState = KEY_RELEASED;
-
 void setup() {
-	pinMode(PIN_TRIGGER, INPUT_PULLUP);
-	pinMode(PIN_RELOAD, INPUT_PULLUP);
-	pinMode(PIN_SHIELD, INPUT_PULLUP);
-	pinMode(PIN_MARKER_CHANGE, INPUT_PULLUP);
-	pinMode(PIN_TEAM_CHANGE, INPUT_PULLUP);
-	pinMode(PIN_START, INPUT_PULLUP);
-	
-	pinMode(PIN_LASER_POINTER, OUTPUT);
-	
 	receiver.enableIRIn();
 	Serial.begin(9600);
 	strip.begin();
 	strip.show();
+	setupButtons();
 	start();
+}
+
+void setupButtons() {
+	pinMode(PIN_TRIGGER, INPUT_PULLUP);
+	pinMode(PIN_RELOAD, INPUT_PULLUP);
+	pinMode(PIN_CHANGE_MARKER_OR_TEAM, INPUT_PULLUP);
+	pinMode(PIN_ACTIVATE_SHIELD_OR_RESPAWN, INPUT_PULLUP);
+	
+	for (byte i = 0; i < BUTTON_COUNT; i++) {
+		buttons[i].delayButtonDown = BUTTON_DELAY;
+		buttons[i].delayButtonPressed = BUTTON_DELAY * 3;
+	}	
+}
+
+void evaluateButtons() {
+	for (byte i = 0; i < BUTTON_COUNT; i++) {
+		buttons[i].lastReading = buttons[i].currentReading;
+	}
+	
+	buttons[0].currentReading = digitalRead(PIN_TRIGGER);
+	buttons[1].currentReading = digitalRead(PIN_RELOAD);
+	buttons[2].currentReading = digitalRead(PIN_CHANGE_MARKER_OR_TEAM);
+	buttons[3].currentReading = digitalRead(PIN_ACTIVATE_SHIELD_OR_RESPAWN);
+
+	for (byte i = 0; i < BUTTON_COUNT; i++) {
+		if (buttons[i].lastReading != buttons[i].currentReading) {
+			buttons[i].timeLastReadingChanged = millis();
+		} else if (millis() > (buttons[i].timeLastReadingChanged + buttons[i].delayButtonDown)) {
+			if (buttons[i].currentReading == KEY_PRESSED) {
+				buttons[i].buttonDown = true;
+			} else {
+				buttons[i].buttonDown = false;
+			}
+		} 
+		if (millis() > (buttons[i].timeLastReadingChanged + buttons[i].delayButtonPressed)) {
+			if (buttons[i].currentReading == KEY_PRESSED) {
+				buttons[i].buttonDown = false;
+				buttons[i].buttonPressed = true;
+			} else {
+				//Probably not really neccessary
+				buttons[i].buttonDown = false;
+				buttons[i].buttonPressed = false;
+			}
+		}
+	}
 }
 
 void setLEDColor(uint32_t c) {
@@ -213,6 +268,8 @@ void refreshDisplayValues() {
 void loop() {
 	//Serial.println(millis()-msSinceLastTick);
 	msSinceLastTick = millis();
+	evaluateButtons();
+
 	if (currentEnergy > 0) {
 		if (receiver.GetResults(&decoder)) {
 			decoder.decodeGeneric(LIGHT_STRIKE_RAW_LENGTH, 
@@ -242,40 +299,38 @@ void loop() {
 			}
 		}
 		/* Only let the user do anything, if the last action has ended */
-		if (millis() > (msSinceLastAction + waitTime)) {
-			triggerState = digitalRead(PIN_TRIGGER);
-			reloadState = digitalRead(PIN_RELOAD);
-			markerChangeState = digitalRead(PIN_MARKER_CHANGE);
-			teamChangeState = digitalRead(PIN_TEAM_CHANGE);
-		  
+		if (millis() > (msSinceLastAction + waitTime)) {		  
 			/* Trigger Action */
-			if (triggerState == KEY_PRESSED) {
-				if (lastTriggerState == KEY_PRESSED) {
-					if (millis() > (msSinceLastShot + markers[currentMarker].continuesDelay)) {
-						shot(teams[currentTeam].code, markers[currentMarker].code);
-					}
-				} else {
-					if (millis() > (msSinceLastShot + markers[currentMarker].bounceDelay)) {
-						shot(teams[currentTeam].code, markers[currentMarker].code);
-					}
+			if (buttons[TRIGGER].buttonDown == true) {
+				if (millis() > (msSinceLastShot + markers[currentMarker].bounceDelay)) {
+					Serial.println("Bounce");
+					shot(teams[currentTeam].code, markers[currentMarker].code);
+				}
+			} else if (buttons[TRIGGER].buttonPressed == true) {
+				if (millis() > (msSinceLastShot + markers[currentMarker].continuesDelay)) {
+					Serial.println("Continues");
+					shot(teams[currentTeam].code, markers[currentMarker].code);
 				}
 			}
-			lastTriggerState = triggerState;
 			
 			/* Reload Action */
-			if (reloadState == KEY_PRESSED) {
+			if (buttons[RELOAD].buttonDown == true) {
 				reload();
 			}
 			
 			/* Change Marker Action */
-			if (markerChangeState == KEY_PRESSED) {
+			if (buttons[MARKER_OR_TEAM].buttonDown == true) {
 				changeMarker();
 			}
 			
-			/* Change Team Action*/
-			if (teamChangeState == KEY_PRESSED) {
+			/* Change Team Action */
+			if (buttons[TRIGGER].buttonPressed == true && buttons[TRIGGER].timeLastReadingChanged > 2000 && buttons[MARKER_OR_TEAM].buttonPressed == true && buttons[MARKER_OR_TEAM].timeLastReadingChanged > 2000) {
 				changeTeam();
 			}
+		}
+	} else {
+		if ((buttons[MARKER_OR_TEAM].buttonDown == true || buttons[MARKER_OR_TEAM].buttonPressed == true) && (buttons[SHIELD_OR_RESPAWN].buttonDown == true || buttons[SHIELD_OR_RESPAWN].buttonPressed == true)) {
+			respawn();
 		}
 	}
 	refreshDisplayValues();
