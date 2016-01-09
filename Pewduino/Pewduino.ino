@@ -171,7 +171,7 @@ void setupButtons() {
 	
 	for (byte i = 0; i < BUTTON_COUNT; i++) {
 		buttons[i].delayButtonDown = BUTTON_DELAY;
-		buttons[i].delayButtonPressed = BUTTON_DELAY * 3;
+		buttons[i].delayButtonPressed = BUTTON_DELAY * 2;
 	}	
 }
 
@@ -304,6 +304,7 @@ void loop() {
 			if (buttons[TRIGGER].buttonDown == true) {
 				if (millis() > (msSinceLastShot + markers[currentMarker].bounceDelay)) {
 					Serial.println("Bounce");
+					waitTime = markers[currentMarker].bounceDelay;
 					shot(teams[currentTeam].code, markers[currentMarker].code);
 				}
 			} else if (buttons[TRIGGER].buttonPressed == true) {
